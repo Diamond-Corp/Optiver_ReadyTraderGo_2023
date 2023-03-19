@@ -59,15 +59,6 @@ void AutoTrader::HedgeFilledMessageHandler(unsigned long clientOrderId,
 {
     RLOG(LG_AT, LogLevel::LL_INFO) << "hedge order " << clientOrderId << " filled for " << volume
                                    << " lots at $" << price << " average price in cents";
-    if (mHBids.count(clientOrderId) == 1)
-    {
-        mHPosition -= (long)volume;
-    }
-    else if (mHAsks.count(clientOrderId) == 1)
-    {
-        mHPosition += (long)volume;
-
-    }
 }
 
 void AutoTrader::OrderBookMessageHandler(Instrument instrument,
@@ -82,76 +73,75 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
                                    << "; ask volumes: " << askVolumes[0]
                                    << "; bid prices: " << bidPrices[0]
                                    << "; bid volumes: " << bidVolumes[0];
-
-    // Store best bid and best ask of ETF LOB
     if (instrument == Instrument::ETF)
     {
-        ETFbestbid = bidPrices[0];
-        ETFbestask = askPrices[0];
-        ETFbidvol = bidVolumes[0];
-        ETFaskvol = askVolumes[0];
-
-    }
-
-    if(instrument == Instrument::FUTURE)
-    {
-
-        RLOG(LG_AT, LogLevel::LL_INFO) << "Last ETF LOB Update "
-                                       << ": ask prices: " << ETFbestask
-                                       << "; ask volumes: " << ETFaskvol
-                                       << "; bid prices: " << ETFbestbid
-                                       << "; bid volumes: " << ETFbidvol;
-
-        // base algo : cancel new orders until old orders are filled/cancelled
-        if (mAskId != 0 && ETFbestbid != 0 && ETFbestbid != mBidPrice)
+        mETFAskPrice = askPrices[0];
+        mETFBidPrice = bidPrices[0];
+        unsigned long newAskPrice = (mFutBidPrice > mETFAskPrice) && (mFutBidPrice != 0) ? mETFAskPrice : 0;
+        unsigned long newBidPrice = (mFutAskPrice < mETFBidPrice) && (mFutAskPrice != 0) ? mETFBidPrice : 0;
+        if (mAskId != 0 && newAskPrice != 0 && newAskPrice != mAskPrice)
         {
             SendCancelOrder(mAskId);
             mAskId = 0;
-            mHBidId = 0;
         }
-        if (mBidId != 0 && ETFbestask != 0 && ETFbestask != mAskPrice)
+        if (mBidId != 0 && newBidPrice != 0 && newBidPrice != mBidPrice)
         {
             SendCancelOrder(mBidId);
             mBidId = 0;
-            mHAskId = 0;
         }
-
-        // Pairs Trading : Sell ETF and buy Future (hedge) simultaneously
-        if (mBidId == 0 && mHAskId == 0 && mHPosition > -POSITION_LIMIT && mPosition < POSITION_LIMIT && ETFbestbid > askPrices[0])
+        if (mBidId == 0 && newBidPrice != 0 && mPosition > -POSITION_LIMIT)
         {
             mBidId = mNextMessageId++;
-            mHAskId = mHNextMessageId++;
-            mBidPrice = ETFbestbid;
-            mHAskPrice = askPrices[0];
-            int vol = std::min(ETFbidvol, askVolumes[0]);
-            SendInsertOrder(mBidId, Side::SELL, mBidPrice, vol, Lifespan::GOOD_FOR_DAY);
-            //   SendHedgeOrder(mHAskId, Side::BUY, mHAskPrice, vol);
-            mBids.emplace(mBidId);
-            //  mHAsks.emplace(mHAskId);
-            RLOG(LG_AT, LogLevel::LL_INFO) << " ETF Sell Order sent @ " << mBidPrice << " for " << ETFbidvol << "shares <> Future Buy Order sent @ "
-                                           << mHAskPrice << " for " <<  askVolumes[0] << "shares" ;
+            mBidPrice = newBidPrice;
+            SendInsertOrder(mAskId, Side::SELL, mBidPrice, LOT_SIZE, Lifespan::GOOD_FOR_DAY);
+            mBids.emplace(mAskId);
+            RLOG(LG_AT, LogLevel::LL_INFO) << " ETF Sell Order sent @ " << mBidPrice ;
         }
-        // Pairs Trading : Buy ETF and sell Future (hedge) simultaneously
-        if (mAskId == 0 && mHBidId == 0 && bidPrices[0] > ETFbestask && mPosition < POSITION_LIMIT && mHPosition > -POSITION_LIMIT)
+        if (mAskId == 0 && newAskPrice != 0 && mPosition < POSITION_LIMIT)
         {
             mAskId = mNextMessageId++;
-            mHBidId = mHNextMessageId++;
-            mAskPrice = ETFbestask;
-            mHBidPrice = bidPrices[0];
-            int vol = std::min(ETFaskvol, bidVolumes[0]);
-            SendInsertOrder(mAskId, Side::BUY, mAskPrice, vol, Lifespan::GOOD_FOR_DAY);
-            //  SendHedgeOrder(mHBidId, Side::SELL, mHBidPrice, vol);
+            mAskPrice = newAskPrice;
+            SendInsertOrder(mAskId, Side::BUY, newAskPrice, LOT_SIZE, Lifespan::GOOD_FOR_DAY);
             mAsks.emplace(mAskId);
-            //mHBids.emplace(mHBidId);
-            RLOG(LG_AT, LogLevel::LL_INFO) << " ETF Buy Order sent @ " << mAskPrice << " for " << ETFaskvol << "shares <> Future Sell Order sent @ "
-                                           << mHBidPrice << " for " <<  bidVolumes[0] << "shares" ;
+            RLOG(LG_AT, LogLevel::LL_INFO) << " ETF Buy Order sent @ " << mBidPrice ;
         }
     }
-
-
-
+    if (instrument == Instrument::FUTURE)
+    {
+        mFutAskPrice = askPrices[0];
+        mFutBidPrice = bidPrices[0];
+        unsigned long newAskPrice = (mFutBidPrice > mETFAskPrice) && (mETFAskPrice != 0) ? mETFAskPrice : 0;
+        unsigned long newBidPrice = (mFutAskPrice < mETFBidPrice) && (mETFBidPrice != 0) ? mETFBidPrice : 0;
+        if (mAskId != 0 && newAskPrice != 0 && newAskPrice != mAskPrice)
+        {
+            SendCancelOrder(mAskId);
+            mAskId = 0;
+        }
+        if (mBidId != 0 && newBidPrice != 0 && newBidPrice != mBidPrice)
+        {
+            SendCancelOrder(mBidId);
+            mBidId = 0;
+        }
+        if (mBidId == 0 && newBidPrice != 0 && mPosition > -POSITION_LIMIT )
+        {
+            mBidId = mNextMessageId++;
+            mBidPrice = newBidPrice;
+            SendInsertOrder(mBidId, Side::SELL, mBidPrice, bidVolumes[0], Lifespan::GOOD_FOR_DAY);
+            mBids.emplace(mBidId);
+            RLOG(LG_AT, LogLevel::LL_INFO) << " ETF Sell Order sent @ " << mBidPrice ;
+            futAsks.insert({mBidId , mFutAskPrice});
+        }
+        if (mAskId == 0 && newAskPrice != 0 && mPosition < POSITION_LIMIT)
+        {
+            mAskId = mNextMessageId++;
+            mAskPrice = newAskPrice;
+            SendInsertOrder(mAskId, Side::BUY, newAskPrice, askVolumes[0], Lifespan::GOOD_FOR_DAY);
+            mAsks.emplace(mAskId);
+            RLOG(LG_AT, LogLevel::LL_INFO) << " ETF Buy Order sent @ " << mBidPrice ;
+            futBids.insert({mAskId, mFutBidPrice});
+        }
+    }
 }
-
 void AutoTrader::OrderFilledMessageHandler(unsigned long clientOrderId,
                                            unsigned long price,
                                            unsigned long volume)
@@ -161,57 +151,101 @@ void AutoTrader::OrderFilledMessageHandler(unsigned long clientOrderId,
     if (mBids.count(clientOrderId) == 1)
     {
         mPosition -= (long)volume;
-        SendHedgeOrder(mHAskId, Side::BUY, mHAskPrice, volume);
-        mHAsks.emplace(mHAskId);
+        auto it = futAsks.find(clientOrderId);
+        SendHedgeOrder(mNextMessageId++, Side::BUY, it->second, volume);
     }
     else if (mAsks.count(clientOrderId) == 1)
     {
         mPosition += (long)volume;
-        SendHedgeOrder(mHBidId, Side::SELL, mHBidPrice, volume);
-        mHBids.emplace(mHBidId);
+        auto it = futBids.find(clientOrderId);
+        SendHedgeOrder(mNextMessageId++, Side::SELL, it->second, volume);
     }
 }
+
+//void AutoTrader::OrderBookMessageHandler(Instrument instrument,
+//                                         unsigned long sequenceNumber,
+//                                         const std::array<unsigned long, TOP_LEVEL_COUNT>& askPrices,
+//                                         const std::array<unsigned long, TOP_LEVEL_COUNT>& askVolumes,
+//                                         const std::array<unsigned long, TOP_LEVEL_COUNT>& bidPrices,
+//                                         const std::array<unsigned long, TOP_LEVEL_COUNT>& bidVolumes)
+//{
+//    RLOG(LG_AT, LogLevel::LL_INFO) << "order book received for " << instrument << " instrument"
+//                                   << ": ask prices: " << askPrices[0]
+//                                   << "; ask volumes: " << askVolumes[0]
+//                                   << "; bid prices: " << bidPrices[0]
+//                                   << "; bid volumes: " << bidVolumes[0];
+//
+//    if (instrument == Instrument::FUTURE)
+//    {
+//        unsigned long priceAdjustment = - (mPosition / LOT_SIZE) * TICK_SIZE_IN_CENTS;
+//        unsigned long newAskPrice = (askPrices[0] != 0) ? askPrices[0] + priceAdjustment : 0;
+//        unsigned long newBidPrice = (bidPrices[0] != 0) ? bidPrices[0] + priceAdjustment : 0;
+//
+//        if (mAskId != 0 && newAskPrice != 0 && newAskPrice != mAskPrice)
+//        {
+//            SendCancelOrder(mAskId);
+//            mAskId = 0;
+//        }
+//        if (mBidId != 0 && newBidPrice != 0 && newBidPrice != mBidPrice)
+//        {
+//            SendCancelOrder(mBidId);
+//            mBidId = 0;
+//        }
+//
+//        if (mAskId == 0 && newAskPrice != 0 && mPosition > -POSITION_LIMIT)
+//        {
+//            mAskId = mNextMessageId++;
+//            mAskPrice = newAskPrice;
+//            SendInsertOrder(mAskId, Side::SELL, newAskPrice, LOT_SIZE, Lifespan::GOOD_FOR_DAY);
+//            mAsks.emplace(mAskId);
+//        }
+//        if (mBidId == 0 && newBidPrice != 0 && mPosition < POSITION_LIMIT)
+//        {
+//            mBidId = mNextMessageId++;
+//            mBidPrice = newBidPrice;
+//            SendInsertOrder(mBidId, Side::BUY, newBidPrice, LOT_SIZE, Lifespan::GOOD_FOR_DAY);
+//            mBids.emplace(mBidId);
+//        }
+//    }
+//}
+
+//void AutoTrader::OrderFilledMessageHandler(unsigned long clientOrderId,
+//                                           unsigned long price,
+//                                           unsigned long volume)
+//{
+//    RLOG(LG_AT, LogLevel::LL_INFO) << "order " << clientOrderId << " filled for " << volume
+//                                   << " lots at $" << price << " cents";
+//    if (mAsks.count(clientOrderId) == 1)
+//    {
+//        mPosition -= (long)volume;
+//        SendHedgeOrder(mNextMessageId++, Side::BUY, MAX_ASK_NEAREST_TICK, volume);
+//    }
+//    else if (mBids.count(clientOrderId) == 1)
+//    {
+//        mPosition += (long)volume;
+//        SendHedgeOrder(mNextMessageId++, Side::SELL, MIN_BID_NEARST_TICK, volume);
+//    }
+//}
 
 void AutoTrader::OrderStatusMessageHandler(unsigned long clientOrderId,
                                            unsigned long fillVolume,
                                            unsigned long remainingVolume,
                                            signed long fees)
 {
-    RLOG(LG_AT, LogLevel::LL_INFO) << " order status :  " << clientOrderId << " filled for " << fillVolume
-                                   << " , for fee : " << fees << " and remaining volume : " << remainingVolume;
-
     if (remainingVolume == 0)
     {
         if (clientOrderId == mAskId)
         {
             mAskId = 0;
-
         }
         else if (clientOrderId == mBidId)
         {
             mBidId = 0;
-
         }
-
-        else if (clientOrderId == mHAskId)
-        {
-            mHAskId = 0;
-
-        }
-        else if (clientOrderId == mHBidId)
-        {
-            mHBidId = 0;
-
-        }
-        else {}
-
 
         mAsks.erase(clientOrderId);
         mBids.erase(clientOrderId);
-        mHAsks.erase(clientOrderId);
-        mHBids.erase(clientOrderId);
     }
-
 }
 
 void AutoTrader::TradeTicksMessageHandler(Instrument instrument,
@@ -226,6 +260,4 @@ void AutoTrader::TradeTicksMessageHandler(Instrument instrument,
                                    << "; ask volumes: " << askVolumes[0]
                                    << "; bid prices: " << bidPrices[0]
                                    << "; bid volumes: " << bidVolumes[0];
-
 }
-

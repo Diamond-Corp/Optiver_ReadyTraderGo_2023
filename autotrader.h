@@ -22,6 +22,7 @@
 #include <memory>
 #include <string>
 #include <unordered_set>
+#include <unordered_map>
 
 #include <boost/asio/io_context.hpp>
 
@@ -95,25 +96,19 @@ public:
 
 private:
     unsigned long mNextMessageId = 1;
-    unsigned long mHNextMessageId = 1;
     unsigned long mAskId = 0;
-    unsigned long mHAskId = 0;
-    unsigned long mAskPrice = 0;
+    unsigned long mFutAskPrice = 0;
+    unsigned long mETFAskPrice = 0;
     unsigned long mBidId = 0;
-    unsigned long mHBidId = 0;
-    unsigned long mBidPrice = 0;
+    unsigned long mFutBidPrice = 0;
+    unsigned long mETFBidPrice = 0;
     signed long mPosition = 0;
-    signed long mHPosition = 0;
+    unsigned  long  mAskPrice = 0;
+    unsigned  long  mBidPrice = 0;
     std::unordered_set<unsigned long> mAsks;
     std::unordered_set<unsigned long> mBids;
-    std::unordered_set<unsigned long> mHAsks;
-    std::unordered_set<unsigned long> mHBids;
-    unsigned long ETFbestbid = 0;
-    unsigned long ETFbestask = 0;
-    unsigned long ETFbidvol = 0;
-    unsigned long ETFaskvol = 0;
-    unsigned  long mHAskPrice = 0;
-    unsigned  long mHBidPrice = 0;
+    std::unordered_map<unsigned long, unsigned long> futAsks;
+    std::unordered_map<unsigned long, unsigned long> futBids;
 };
 
 #endif //CPPREADY_TRADER_GO_AUTOTRADER_H
